@@ -13,20 +13,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const connectionText = document.getElementById('connectionText');
 
     let videoFormats = [];
+    let isConnected = true;
 
     // Function to update connection status
-    function updateConnectionStatus() {
-        if (navigator.onLine) {
+    function updateConnectionStatus(status = navigator.onLine) {
+        isConnected = status;
+        if (status) {
             connectionStatus.classList.remove('offline');
             connectionStatus.classList.add('online');
             connectionText.textContent = 'Connected to the Internet';
             fetchInfoBtn.disabled = false;
+            downloadBtn.disabled = false;
         } else {
             connectionStatus.classList.remove('online');
             connectionStatus.classList.add('offline');
             connectionText.textContent = 'No Internet Connection';
             fetchInfoBtn.disabled = true;
-            showError('Internet connection is required to download videos');
+            downloadBtn.disabled = true;
         }
     }
 
@@ -34,32 +37,17 @@ document.addEventListener('DOMContentLoaded', () => {
     updateConnectionStatus();
 
     // Listen for online/offline events
-    window.addEventListener('online', updateConnectionStatus);
-    window.addEventListener('offline', updateConnectionStatus);
-
-    // Additional connection check every 30 seconds
-    setInterval(() => {
-        fetch('/ping')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Server not responding');
-                }
-                updateConnectionStatus();
-            })
-            .catch(() => {
-                connectionStatus.classList.remove('online');
-                connectionStatus.classList.add('offline');
-                connectionText.textContent = 'No Internet Connection';
-                fetchInfoBtn.disabled = true;
-            });
-    }, 30000);
+    window.addEventListener('online', () => updateConnectionStatus(true));
+    window.addEventListener('offline', () => updateConnectionStatus(false));
 
     // Helper function to show error messages
     function showError(message) {
         alert(message);
-        videoInfo.classList.add('hidden');
-        videoTitle.textContent = '';
-        videoFormats = [];
+        if (!videoFormats.length) {
+            videoInfo.classList.add('hidden');
+            videoTitle.textContent = '';
+            videoFormats = [];
+        }
     }
 
     // Helper function to validate YouTube URL
@@ -102,9 +90,14 @@ document.addEventListener('DOMContentLoaded', () => {
             videoFormats = data.formats;
             updateQualityOptions();
             videoInfo.classList.remove('hidden');
+            updateConnectionStatus(true); // Update connection status on successful fetch
         } catch (error) {
             console.error('Error details:', error);
             showError(error.message || 'An error occurred while fetching video information');
+            // Only update connection status if it's a network error
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                updateConnectionStatus(false);
+            }
         } finally {
             fetchInfoBtn.disabled = false;
             fetchInfoBtn.textContent = 'Fetch Video Info';
@@ -143,6 +136,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     downloadBtn.addEventListener('click', async () => {
+        if (!isConnected) {
+            showError('No internet connection. Please check your connection and try again.');
+            return;
+        }
+
         const url = videoUrlInput.value.trim();
         const isAudio = downloadType.value === 'audio';
         const quality = qualitySelector.value;
@@ -152,19 +150,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        let downloadUrl = `/download?url=${encodeURIComponent(url)}&isAudio=${isAudio}`;
-        
-        if (!isAudio && quality) {
-            const selectedFormat = videoFormats.find(f => f.quality === quality);
-            if (selectedFormat) {
-                downloadUrl += `&quality=${selectedFormat.itag}`;
-            }
-        }
-
         try {
             downloadBtn.disabled = true;
             progressContainer.classList.remove('hidden');
             
+            const downloadUrl = `/download?url=${encodeURIComponent(url)}&isAudio=${isAudio}${quality ? `&quality=${encodeURIComponent(quality)}` : ''}`;
             const response = await fetch(downloadUrl);
             
             if (!response.ok) {
@@ -172,39 +162,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(errorData.error || 'Download failed');
             }
 
-            const reader = response.body.getReader();
             const contentLength = response.headers.get('Content-Length');
-            
-            let receivedLength = 0;
             const chunks = [];
+            const reader = response.body.getReader();
+            let receivedLength = 0;
 
-            while(true) {
+            while (true) {
                 const {done, value} = await reader.read();
-                
                 if (done) break;
-                
                 chunks.push(value);
                 receivedLength += value.length;
                 
                 if (contentLength) {
                     const progress = (receivedLength / contentLength) * 100;
-                    progressBar.style.width = progress + '%';
-                    progressText.textContent = Math.round(progress) + '%';
+                    progressBar.style.width = `${Math.min(100, progress)}%`;
+                    progressText.textContent = `${Math.round(progress)}%`;
                 }
             }
 
             const blob = new Blob(chunks);
-            const downloadUrl = URL.createObjectURL(blob);
+            const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = downloadUrl;
+            a.href = blobUrl;
             a.download = isAudio ? 'audio.mp3' : 'video.mp4';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            URL.revokeObjectURL(downloadUrl);
-
+            URL.revokeObjectURL(blobUrl);
+            updateConnectionStatus(true);
         } catch (error) {
+            console.error('Download error:', error);
             showError('Error downloading: ' + error.message);
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                updateConnectionStatus(false);
+            }
         } finally {
             downloadBtn.disabled = false;
             progressContainer.classList.add('hidden');
