@@ -20,10 +20,21 @@ document.addEventListener('DOMContentLoaded', () => {
         videoFormats = [];
     }
 
+    // Helper function to validate YouTube URL
+    function isValidYouTubeUrl(url) {
+        const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/;
+        return youtubeRegex.test(url);
+    }
+
     fetchInfoBtn.addEventListener('click', async () => {
         const url = videoUrlInput.value.trim();
         if (!url) {
             showError('Please enter a YouTube URL');
+            return;
+        }
+
+        if (!isValidYouTubeUrl(url)) {
+            showError('Please enter a valid YouTube URL');
             return;
         }
 
@@ -69,9 +80,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const uniqueQualities = [...new Set(
             videoFormats
-                .filter(format => format.hasVideo)
+                .filter(format => format.hasVideo && format.hasAudio) // Only show formats with both video and audio
                 .map(format => format.quality)
-        )].filter(Boolean);
+        )].filter(Boolean).sort((a, b) => {
+            // Sort qualities in descending order
+            const aRes = parseInt(a.match(/\d+/)?.[0] || '0');
+            const bRes = parseInt(b.match(/\d+/)?.[0] || '0');
+            return bRes - aRes;
+        });
 
         uniqueQualities.forEach(quality => {
             const option = document.createElement('option');
@@ -86,9 +102,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const isAudio = downloadType.value === 'audio';
         const quality = qualitySelector.value;
 
+        if (!url || !isValidYouTubeUrl(url)) {
+            showError('Please enter a valid YouTube URL');
+            return;
+        }
+
         let downloadUrl = `/download?url=${encodeURIComponent(url)}&isAudio=${isAudio}`;
         
-        if (!isAudio) {
+        if (!isAudio && quality) {
             const selectedFormat = videoFormats.find(f => f.quality === quality);
             if (selectedFormat) {
                 downloadUrl += `&quality=${selectedFormat.itag}`;
@@ -100,6 +121,12 @@ document.addEventListener('DOMContentLoaded', () => {
             progressContainer.classList.remove('hidden');
             
             const response = await fetch(downloadUrl);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Download failed');
+            }
+
             const reader = response.body.getReader();
             const contentLength = response.headers.get('Content-Length');
             
@@ -132,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
             URL.revokeObjectURL(downloadUrl);
 
         } catch (error) {
-            alert('Error downloading: ' + error.message);
+            showError('Error downloading: ' + error.message);
         } finally {
             downloadBtn.disabled = false;
             progressContainer.classList.add('hidden');
