@@ -1,40 +1,43 @@
+let videoTitle = '';
+
 document.addEventListener('DOMContentLoaded', () => {
     const videoUrlInput = document.getElementById('videoUrl');
     const fetchInfoBtn = document.getElementById('fetchInfo');
-    const videoInfo = document.getElementById('videoInfo');
-    const videoTitle = document.getElementById('videoTitle');
-    const downloadType = document.getElementById('downloadType');
-    const qualitySelector = document.getElementById('quality');
+    const videoInfoDiv = document.getElementById('videoInfo');
+    const downloadTypeSelect = document.getElementById('downloadType');
+    const qualitySelect = document.getElementById('quality');
     const downloadBtn = document.getElementById('downloadBtn');
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
+    const videoTitleElement = document.getElementById('videoTitle');
     const connectionStatus = document.getElementById('connectionStatus');
     const connectionText = document.getElementById('connectionText');
+    const connectionIcon = document.getElementById('connectionIcon');
 
     let videoFormats = [];
     let isConnected = true;
 
     // Function to update connection status
-    function updateConnectionStatus(status = navigator.onLine) {
-        isConnected = status;
-        if (status) {
-            connectionStatus.classList.remove('offline');
-            connectionStatus.classList.add('online');
+    function updateConnectionStatus(online) {
+        isConnected = online;
+        if (online) {
+            connectionStatus.className = 'connection-status connected';
             connectionText.textContent = 'Connected to the Internet';
+            connectionIcon.textContent = '●';
             fetchInfoBtn.disabled = false;
             downloadBtn.disabled = false;
         } else {
-            connectionStatus.classList.remove('online');
-            connectionStatus.classList.add('offline');
+            connectionStatus.className = 'connection-status disconnected';
             connectionText.textContent = 'No Internet Connection';
+            connectionIcon.textContent = '○';
             fetchInfoBtn.disabled = true;
             downloadBtn.disabled = true;
         }
     }
 
     // Initial connection check
-    updateConnectionStatus();
+    updateConnectionStatus(navigator.onLine);
 
     // Listen for online/offline events
     window.addEventListener('online', () => updateConnectionStatus(true));
@@ -44,8 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function showError(message) {
         alert(message);
         if (!videoFormats.length) {
-            videoInfo.classList.add('hidden');
-            videoTitle.textContent = '';
+            videoInfoDiv.classList.add('hidden');
+            videoTitleElement.textContent = '';
             videoFormats = [];
         }
     }
@@ -57,13 +60,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     fetchInfoBtn.addEventListener('click', async () => {
-        const url = videoUrlInput.value.trim();
-        if (!url) {
+        const videoUrl = videoUrlInput.value.trim();
+        if (!videoUrl) {
             showError('Please enter a YouTube URL');
             return;
         }
 
-        if (!isValidYouTubeUrl(url)) {
+        if (!isValidYouTubeUrl(videoUrl)) {
             showError('Please enter a valid YouTube URL');
             return;
         }
@@ -72,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchInfoBtn.disabled = true;
             fetchInfoBtn.textContent = 'Fetching...';
 
-            const response = await fetch(`/video-info?url=${encodeURIComponent(url)}`);
+            const response = await fetch(`/video-info?url=${encodeURIComponent(videoUrl)}`);
             
             if (!response.ok) {
                 const text = await response.text();
@@ -82,14 +85,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const data = await response.json();
 
-            if (!data.formats || data.formats.length === 0) {
-                throw new Error('No available formats found for this video');
+            if (data.error) {
+                throw new Error(data.error);
             }
 
-            videoTitle.textContent = data.title;
+            videoTitle = data.title;
+            videoTitleElement.textContent = videoTitle;
             videoFormats = data.formats;
             updateQualityOptions();
-            videoInfo.classList.remove('hidden');
+            videoInfoDiv.classList.remove('hidden');
+            progressContainer.classList.add('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = '0%';
             updateConnectionStatus(true); // Update connection status on successful fetch
         } catch (error) {
             console.error('Error details:', error);
@@ -104,34 +111,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    downloadType.addEventListener('change', updateQualityOptions);
+    downloadTypeSelect.addEventListener('change', updateQualityOptions);
 
     function updateQualityOptions() {
-        qualitySelector.innerHTML = '';
-        const isAudio = downloadType.value === 'audio';
+        qualitySelect.innerHTML = '';
+        const isAudio = downloadTypeSelect.value === 'audio';
 
         if (isAudio) {
-            qualitySelector.parentElement.classList.add('hidden');
+            qualitySelect.parentElement.classList.add('hidden');
             return;
         }
 
-        qualitySelector.parentElement.classList.remove('hidden');
+        qualitySelect.parentElement.classList.remove('hidden');
         
-        const uniqueQualities = [...new Set(
-            videoFormats
-                .filter(format => format.hasVideo && format.hasAudio)
-                .map(format => format.quality)
-        )].filter(Boolean).sort((a, b) => {
-            const aRes = parseInt(a.match(/\d+/)?.[0] || '0');
-            const bRes = parseInt(b.match(/\d+/)?.[0] || '0');
-            return bRes - aRes;
+        const sortedFormats = videoFormats.sort((a, b) => {
+            const getQualityNumber = (quality) => {
+                if (!quality) return 0;
+                const match = quality.match(/(\d+)p/);
+                return match ? parseInt(match[1]) : 0;
+            };
+            return getQualityNumber(b.quality) - getQualityNumber(a.quality);
         });
 
-        uniqueQualities.forEach(quality => {
-            const option = document.createElement('option');
-            option.value = quality;
-            option.textContent = quality;
-            qualitySelector.appendChild(option);
+        const addedQualities = new Set();
+        sortedFormats.forEach(format => {
+            if (format.hasVideo && !addedQualities.has(format.quality)) {
+                const option = document.createElement('option');
+                option.value = format.quality;
+                option.textContent = `${format.quality}${format.fps !== 'N/A' ? ` (${format.fps}fps)` : ''}`;
+                qualitySelect.appendChild(option);
+                addedQualities.add(format.quality);
+            }
         });
     }
 
@@ -141,11 +151,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const url = videoUrlInput.value.trim();
-        const isAudio = downloadType.value === 'audio';
-        const quality = qualitySelector.value;
+        const videoUrl = videoUrlInput.value.trim();
+        const isAudio = downloadTypeSelect.value === 'audio';
+        const quality = qualitySelect.value;
 
-        if (!url || !isValidYouTubeUrl(url)) {
+        if (!videoUrl || !isValidYouTubeUrl(videoUrl)) {
             showError('Please enter a valid YouTube URL');
             return;
         }
@@ -153,8 +163,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             downloadBtn.disabled = true;
             progressContainer.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = '0%';
             
-            const downloadUrl = `/download?url=${encodeURIComponent(url)}&isAudio=${isAudio}${quality ? `&quality=${encodeURIComponent(quality)}` : ''}`;
+            const downloadUrl = `/download?url=${encodeURIComponent(videoUrl)}&quality=${encodeURIComponent(quality)}&isAudio=${isAudio}`;
             const response = await fetch(downloadUrl);
             
             if (!response.ok) {
@@ -162,34 +174,61 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(errorData.error || 'Download failed');
             }
 
-            const contentLength = response.headers.get('Content-Length');
-            const chunks = [];
+            const contentLength = response.headers.get('content-length');
             const reader = response.body.getReader();
             let receivedLength = 0;
 
-            while (true) {
-                const {done, value} = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                receivedLength += value.length;
-                
-                if (contentLength) {
-                    const progress = (receivedLength / contentLength) * 100;
-                    progressBar.style.width = `${Math.min(100, progress)}%`;
-                    progressText.textContent = `${Math.round(progress)}%`;
-                }
-            }
+            // Create a new ReadableStream to handle the download
+            const stream = new ReadableStream({
+                async start(controller) {
+                    try {
+                        while (true) {
+                            const {done, value} = await reader.read();
+                            
+                            if (done) {
+                                controller.close();
+                                break;
+                            }
 
-            const blob = new Blob(chunks);
+                            receivedLength += value.length;
+                            
+                            if (contentLength) {
+                                const progress = (receivedLength / contentLength) * 100;
+                                progressBar.style.width = `${Math.min(100, progress.toFixed(1))}%`;
+                                progressText.textContent = `${Math.min(100, progress.toFixed(1))}%`;
+                            }
+                            
+                            controller.enqueue(value);
+                        }
+                    } catch (error) {
+                        controller.error(error);
+                        throw error;
+                    }
+                }
+            });
+
+            // Convert stream to blob and download
+            const blob = await new Response(stream).blob();
             const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = blobUrl;
-            a.download = isAudio ? 'audio.mp3' : 'video.mp4';
+            a.download = `${videoTitle}${isAudio ? '.mp3' : '.mp4'}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(blobUrl);
-            updateConnectionStatus(true);
+
+            // Show completion
+            progressBar.style.width = '100%';
+            progressText.textContent = '100%';
+            
+            // Reset progress after a short delay
+            setTimeout(() => {
+                progressContainer.classList.add('hidden');
+                progressBar.style.width = '0%';
+                progressText.textContent = '0%';
+            }, 2000);
+
         } catch (error) {
             console.error('Download error:', error);
             showError('Error downloading: ' + error.message);
@@ -198,9 +237,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } finally {
             downloadBtn.disabled = false;
-            progressContainer.classList.add('hidden');
-            progressBar.style.width = '0%';
-            progressText.textContent = '0%';
         }
     });
 }); 

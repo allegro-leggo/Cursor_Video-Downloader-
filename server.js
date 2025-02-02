@@ -115,8 +115,7 @@ try {
                 .filter(format => {
                     // Filter out formats without video or audio
                     if (!format.hasVideo && !format.hasAudio) return false;
-                    // Filter out 4K for stability
-                    if (format.qualityLabel && format.qualityLabel.includes('2160p')) return false;
+                    // Remove 4K filter to allow all qualities
                     return true;
                 })
                 .map(format => ({
@@ -126,7 +125,8 @@ try {
                     hasVideo: format.hasVideo,
                     container: format.container,
                     contentLength: format.contentLength,
-                    mimeType: format.mimeType
+                    mimeType: format.mimeType,
+                    fps: format.fps || 'N/A'  // Add FPS information
                 }));
 
             if (formats.length === 0) {
@@ -181,7 +181,11 @@ try {
                     .audioBitrate(192)
                     .on('start', () => console.log('FFmpeg started processing'))
                     .on('progress', (progress) => {
-                        console.log('Processing: ' + progress.percent + '% done');
+                        if (progress.percent) {
+                            console.log('Processing: ' + progress.percent.toFixed(2) + '% done');
+                            // Send progress event
+                            res.write(`data: ${JSON.stringify({ progress: progress.percent })}\n\n`);
+                        }
                     })
                     .on('end', () => console.log('Audio conversion finished'))
                     .on('error', error => {
@@ -218,8 +222,14 @@ try {
                 console.log('Selected format:', {
                     quality: format.qualityLabel,
                     itag: format.itag,
-                    container: format.container
+                    container: format.container,
+                    contentLength: format.contentLength
                 });
+
+                // Set content length header if available
+                if (format.contentLength) {
+                    res.header('Content-Length', format.contentLength);
+                }
 
                 ytdl(url, {
                     format: format
