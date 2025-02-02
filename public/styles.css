@@ -136,4 +136,41 @@ select {
     font-size: 1.2rem;
     margin-bottom: 1rem;
     word-break: break-word;
+}
+
+.connection-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    margin-bottom: 1rem;
+    border-radius: 5px;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.connection-icon {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.connection-status.online {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+}
+
+.connection-status.offline {
+    background-color: #ffebee;
+    color: #c62828;
+}
+
+.connection-status.online .connection-icon {
+    background-color: #2e7d32;
+}
+
+.connection-status.offline .connection-icon {
+    background-color: #c62828;
 } 

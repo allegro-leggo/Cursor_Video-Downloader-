@@ -2,13 +2,22 @@ const express = require('express');
 const ytdl = require('ytdl-core');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
+const cors = require('cors');
 const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Middleware to log all requests
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    next();
+});
+
 ffmpeg.setFfmpegPath(ffmpegPath);
 
+// Enable CORS for all routes
+app.use(cors());
 app.use(express.static('public'));
 app.use(express.json());
 
@@ -20,19 +29,25 @@ function isValidYouTubeUrl(url) {
 
 app.get('/video-info', async (req, res) => {
     try {
+        console.log('Received video-info request:', req.query);
         const videoURL = req.query.url;
 
         if (!videoURL) {
+            console.log('No URL provided');
             return res.status(400).json({ error: 'Please provide a YouTube URL' });
         }
 
         if (!isValidYouTubeUrl(videoURL)) {
+            console.log('Invalid URL format:', videoURL);
             return res.status(400).json({ error: 'Please provide a valid YouTube URL' });
         }
 
+        console.log('Fetching video info for:', videoURL);
         const info = await ytdl.getInfo(videoURL);
+        console.log('Video info fetched successfully');
+
         const formats = info.formats
-            .filter(format => !format.qualityLabel.includes('2160p')) // Exclude 4K for stability
+            .filter(format => !format.qualityLabel?.includes('2160p')) // Exclude 4K for stability
             .map(format => ({
                 itag: format.itag,
                 quality: format.qualityLabel || format.quality,
@@ -43,12 +58,14 @@ app.get('/video-info', async (req, res) => {
                 mimeType: format.mimeType
             }));
 
-        res.json({
+        const response = {
             title: info.videoDetails.title,
             formats: formats.filter(format => format.hasVideo || format.hasAudio)
-        });
+        };
+        console.log('Sending response with', response.formats.length, 'formats');
+        res.json(response);
     } catch (error) {
-        console.error('Error fetching video info:', error);
+        console.error('Error in /video-info:', error);
         res.status(500).json({ 
             error: error.message || 'An error occurred while fetching video information'
         });
@@ -105,6 +122,10 @@ app.get('/download', async (req, res) => {
     }
 });
 
+app.get('/ping', (req, res) => {
+    res.status(200).send('pong');
+});
+
 app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+    console.log(`Server running on port ${port}`);
 }); 

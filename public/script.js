@@ -9,8 +9,50 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const connectionText = document.getElementById('connectionText');
 
     let videoFormats = [];
+
+    // Function to update connection status
+    function updateConnectionStatus() {
+        if (navigator.onLine) {
+            connectionStatus.classList.remove('offline');
+            connectionStatus.classList.add('online');
+            connectionText.textContent = 'Connected to the Internet';
+            fetchInfoBtn.disabled = false;
+        } else {
+            connectionStatus.classList.remove('online');
+            connectionStatus.classList.add('offline');
+            connectionText.textContent = 'No Internet Connection';
+            fetchInfoBtn.disabled = true;
+            showError('Internet connection is required to download videos');
+        }
+    }
+
+    // Initial connection check
+    updateConnectionStatus();
+
+    // Listen for online/offline events
+    window.addEventListener('online', updateConnectionStatus);
+    window.addEventListener('offline', updateConnectionStatus);
+
+    // Additional connection check every 30 seconds
+    setInterval(() => {
+        fetch('/ping')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Server not responding');
+                }
+                updateConnectionStatus();
+            })
+            .catch(() => {
+                connectionStatus.classList.remove('online');
+                connectionStatus.classList.add('offline');
+                connectionText.textContent = 'No Internet Connection';
+                fetchInfoBtn.disabled = true;
+            });
+    }, 30000);
 
     // Helper function to show error messages
     function showError(message) {
@@ -43,11 +85,14 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchInfoBtn.textContent = 'Fetching...';
 
             const response = await fetch(`/video-info?url=${encodeURIComponent(url)}`);
-            const data = await response.json();
-
+            
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to fetch video information');
+                const text = await response.text();
+                console.error('Server response:', text);
+                throw new Error('Failed to fetch video information');
             }
+
+            const data = await response.json();
 
             if (!data.formats || data.formats.length === 0) {
                 throw new Error('No available formats found for this video');
@@ -58,7 +103,8 @@ document.addEventListener('DOMContentLoaded', () => {
             updateQualityOptions();
             videoInfo.classList.remove('hidden');
         } catch (error) {
-            showError(error.message);
+            console.error('Error details:', error);
+            showError(error.message || 'An error occurred while fetching video information');
         } finally {
             fetchInfoBtn.disabled = false;
             fetchInfoBtn.textContent = 'Fetch Video Info';
@@ -80,10 +126,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const uniqueQualities = [...new Set(
             videoFormats
-                .filter(format => format.hasVideo && format.hasAudio) // Only show formats with both video and audio
+                .filter(format => format.hasVideo && format.hasAudio)
                 .map(format => format.quality)
         )].filter(Boolean).sort((a, b) => {
-            // Sort qualities in descending order
             const aRes = parseInt(a.match(/\d+/)?.[0] || '0');
             const bRes = parseInt(b.match(/\d+/)?.[0] || '0');
             return bRes - aRes;
