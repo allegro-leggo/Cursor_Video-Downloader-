@@ -11,7 +11,6 @@ console.log('Starting server initialization...');
 try {
     const app = express();
     const port = process.env.PORT || 4000;
-    const host = 'localhost';
 
     // Error handling for uncaught exceptions
     process.on('uncaughtException', (error) => {
@@ -199,30 +198,46 @@ try {
                 console.log('Starting video download with quality:', quality);
                 res.header('Content-Disposition', `attachment; filename="${videoTitle}.mp4"`);
 
-                // Get available formats
-                const formats = ytdl.filterFormats(info.formats, 'videoandaudio');
+                // Get all available formats
+                const formats = info.formats.filter(format => 
+                    format.hasVideo && 
+                    format.hasAudio && 
+                    format.container === 'mp4' &&
+                    format.qualityLabel // ensure it has a quality label
+                );
+
                 console.log('Available formats:', formats.map(f => ({
                     quality: f.qualityLabel,
                     itag: f.itag,
-                    container: f.container
+                    container: f.container,
+                    codecs: f.codecs
                 })));
 
-                // Select the format
-                let format;
-                if (quality) {
-                    format = formats.find(f => f.qualityLabel === quality) || formats[0];
-                } else {
-                    format = formats[0];
+                // Select the format that exactly matches the requested quality
+                let format = formats.find(f => f.qualityLabel === quality);
+                
+                // If exact quality not found, find the next best quality
+                if (!format) {
+                    console.log('Exact quality match not found, finding best alternative');
+                    const qualityNumber = parseInt(quality);
+                    const availableQualities = formats
+                        .map(f => parseInt(f.qualityLabel))
+                        .filter(q => !isNaN(q))
+                        .sort((a, b) => b - a);
+                    
+                    const nextBestQuality = availableQualities.find(q => q <= qualityNumber) || availableQualities[0];
+                    format = formats.find(f => f.qualityLabel === `${nextBestQuality}p`);
                 }
 
                 if (!format) {
-                    throw new Error('No suitable format found');
+                    throw new Error(`No suitable format found for quality: ${quality}`);
                 }
 
                 console.log('Selected format:', {
                     quality: format.qualityLabel,
                     itag: format.itag,
                     container: format.container,
+                    codecs: format.codecs,
                     contentLength: format.contentLength
                 });
 
@@ -232,7 +247,8 @@ try {
                 }
 
                 ytdl(url, {
-                    format: format
+                    format: format,
+                    quality: format.itag // Use the specific itag for the selected format
                 })
                 .on('progress', (chunkLength, downloaded, total) => {
                     const percent = (downloaded / total) * 100;
@@ -258,9 +274,8 @@ try {
     });
 
     // Start the server
-    const server = app.listen(port, '0.0.0.0', () => {
-        console.log(`Server running at http://localhost:${port}`);
-        console.log(`You can also try http://127.0.0.1:${port}`);
+    const server = app.listen(port, () => {
+        console.log(`Server running on port ${port}`);
     });
 
     server.on('error', (error) => {
